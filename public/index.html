@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map to ASCII</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 512px;
+            width: 512px;
+            margin-bottom: 1em;
+        }
+        #info { font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>Map to ASCII</h1>
+    &copy; <a href="https://stadiamaps.com/" target="_blank">Stadia Maps</a>
+    &copy; <a href="https://stamen.com/" target="_blank">Stamen Design</a>
+    &copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a>
+    &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>
+    <div id="map"></div>
+    <div id="info">Lat: <span id="lat"></span>, Lon: <span id="lon"></span>, Zoom: <span id="zoom"></span></div>
+    <button id="previewBtn">API Output</button>
+    <button id="asciiBtn">Convert Preview to ASCII</button>
+    <button id="savePdfBtn" style="display:none;">Save ASCII as PDF</button>
+    <div id="preview" style="margin-top:1em;"></div>
+    <pre id="ascii" style="margin-top:1em; background:#222; color:#eee; padding:1em; max-width:100%; overflow-x:auto;"></pre>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        document.getElementById('savePdfBtn').addEventListener('click', function() {
+            const ascii = document.getElementById('ascii').textContent;
+            if (!ascii) {
+                alert('No ASCII art to save!');
+                return;
+            }
+            const { jsPDF } = window.jspdf;
+            // Use A3 portrait for larger page
+            const doc = new jsPDF({ orientation: 'portrait', format: 'a3' });
+            doc.setFont('courier', 'normal');
+            doc.setFontSize(6);
+            // Set text color to #eee and background to #222
+            doc.setTextColor(238, 238, 238); // #eee
+            doc.setFillColor(34, 34, 34);    // #222
+            doc.rect(0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight(), 'F');
+            const lines = ascii.split('\n');
+            let y = 10;
+            for (const line of lines) {
+            doc.text(line, 10, y);
+            y += 3.5;
+            }
+            doc.save('ascii-map.pdf');
+        });
+        // Helper: lat/lon to tile X/Y
+        function latLonToTileXY(lat, lon, zoom) {
+            const latRad = lat * Math.PI / 180;
+            const n = Math.pow(2, zoom);
+            const x = Math.floor((lon + 180) / 360 * n);
+            const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+            return { x, y };
+        }
+        // Helper: tile X/Y to lat/lon (center of tile)
+        function tileXYToLatLon(x, y, zoom) {
+            const n = Math.pow(2, zoom);
+            const lon = x / n * 360 - 180;
+            const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)));
+            const lat = latRad * 180 / Math.PI;
+            return { lat, lon };
+        }
+        // Helper: tile X/Y to lat/lon (top left corner)
+        function tileXYToLatLon_TopLeft(x, y, zoom) {
+            const n = Math.pow(2, zoom);
+            const lon = x / n * 360 - 180;
+            const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)));
+            const lat = latRad * 180 / Math.PI;
+            return { lat, lon };
+        }
+        // Helper: tile X/Y to lat/lon (bottom right corner)
+        function tileXYToLatLon_BottomRight(x, y, zoom) {
+            const n = Math.pow(2, zoom);
+            const lon = (x + 1) / n * 360 - 180;
+            const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n)));
+            const lat = latRad * 180 / Math.PI;
+            return { lat, lon };
+        }
+        let lastPreviewBlob = null;
+        document.getElementById('previewBtn').addEventListener('click', async () => {
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            const lat = center.lat;
+            const lon = center.lng;
+            const previewDiv = document.getElementById('preview');
+            previewDiv.innerHTML = 'Loading...';
+            document.getElementById('ascii').textContent = '';
+            try {
+                const response = await fetch(`/api/get-image?lat=${lat}&lon=${lon}&zoom=${zoom}`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    lastPreviewBlob = blob;
+                    const url = URL.createObjectURL(blob);
+                    previewDiv.innerHTML = `<img src="${url}" alt="API Preview" />`;
+                } else {
+                    previewDiv.textContent = 'Error fetching image from API.';
+                    lastPreviewBlob = null;
+                }
+            } catch (e) {
+                previewDiv.textContent = 'Error fetching image from API.';
+                lastPreviewBlob = null;
+            }
+        });
+
+        document.getElementById('asciiBtn').addEventListener('click', async () => {
+            const asciiDiv = document.getElementById('ascii');
+            asciiDiv.textContent = 'Converting to ASCII...';
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            const lat = center.lat;
+            const lon = center.lng;
+            try {
+                const response = await fetch('/api/image-to-ascii', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ lat, lon, zoom })
+                });
+                if (response.ok) {
+                    const ascii = await response.text();
+                    asciiDiv.textContent = ascii;
+                    document.getElementById('savePdfBtn').style.display = '';
+                } else {
+                    asciiDiv.textContent = 'Error converting image to ASCII.';
+                }
+            } catch (e) {
+                asciiDiv.textContent = 'Error converting image to ASCII.';
+            }
+        });
+        // Initialize map at [0,0], zoom 2
+        const map = L.map('map', {
+            center: [0, 0],
+            zoom: 2,
+            minZoom: 0,
+            maxZoom: 19,
+            zoomControl: true,
+            attributionControl: true
+        });
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            tileSize: 256,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let tileRect = null;
+        function updateInfoAndTileRect() {
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            document.getElementById('lat').textContent = center.lat.toFixed(5);
+            document.getElementById('lon').textContent = center.lng.toFixed(5);
+            document.getElementById('zoom').textContent = zoom;
+
+            // Calculate tile bounds
+            const tile = latLonToTileXY(center.lat, center.lng, zoom);
+            const topLeft = tileXYToLatLon_TopLeft(tile.x, tile.y, zoom);
+            const bottomRight = tileXYToLatLon_BottomRight(tile.x, tile.y, zoom);
+            const bounds = [
+                [topLeft.lat, topLeft.lon],
+                [bottomRight.lat, bottomRight.lon]
+            ];
+            // Remove previous rectangle
+            if (tileRect) {
+                map.removeLayer(tileRect);
+            }
+            // Draw new rectangle
+            tileRect = L.rectangle(bounds, {color: "red", weight: 2, fillOpacity: 0, interactive: false});
+            tileRect.addTo(map);
+        }
+
+        map.on('moveend zoomend', updateInfoAndTileRect);
+        updateInfoAndTileRect();
+    </script>
+</body>
+</html>

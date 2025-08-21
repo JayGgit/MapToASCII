@@ -1,0 +1,27 @@
+{
+  "name": "maptoascii",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/JayGgit/MapToASCII#readme",
+  "bugs": {
+    "url": "https://github.com/JayGgit/MapToASCII/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JayGgit/MapToASCII.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "asciify-image": "^0.1.1",
+    "canvas": "^3.2.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "multer": "^2.0.2"
+  }
+}
